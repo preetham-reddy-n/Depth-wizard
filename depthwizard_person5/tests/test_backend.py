@@ -61,6 +61,26 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/process", files={"image": ("notes.txt", b"hello", "text/plain")}).status_code, 400)
         self.assertEqual(self.client.post("/api/process", files={"image": ("fake.png", b"not a png", "image/png")}).status_code, 400)
 
+    def test_built_frontend_and_api_share_one_server(self):
+        root = Path(self.temporary.name) / 'frontend'
+        (root / 'assets').mkdir(parents=True)
+        (root / 'index.html').write_text('<div id="root">DepthWizard</div>')
+        (root / 'assets' / 'app.js').write_text('console.log("app")')
+        with patch.object(sys.modules['main'], 'FRONTEND_DIST', root):
+            for route in ('/', '/analyze', '/results/job_123456789abc'):
+                self.assertIn('DepthWizard', self.client.get(route).text)
+            self.assertIn('console.log', self.client.get('/assets/app.js').text)
+            self.assertEqual(self.client.get('/api/nonexistent').status_code, 404)
+            self.assertEqual(self.client.get('/assets/missing.js').status_code, 404)
+            self.assertEqual(self.client.get('/health').json()['status'], 'ok')
+            self.assertEqual(self.client.post('/api/process', files={'image': ('scene.png', PNG_1X1)}).status_code, 200)
+
+    def test_missing_build_has_startup_guidance(self):
+        with patch.object(sys.modules['main'], 'FRONTEND_DIST', Path(self.temporary.name) / 'missing'):
+            response = self.client.get('/')
+            self.assertEqual(response.status_code, 503)
+            self.assertIn('START_DEPTHWIZARD.cmd', response.json()['detail'])
+
     def test_unique_jobs_and_path_traversal_blocked(self):
         first = self.client.post("/api/process", files={"image": ("a.png", PNG_1X1, "image/png")}).json()
         second = self.client.post("/api/process", files={"image": ("b.png", PNG_1X1, "image/png")}).json()

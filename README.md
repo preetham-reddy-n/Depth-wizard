@@ -4,13 +4,20 @@ This was the project selected for the September 2026 Hackathon.
 
 ## First run on another Windows laptop
 
+**For judges: extract the project, then double-click `START_HERE.cmd`.**
+It checks dependencies, runs first-time setup when needed, downloads/tests the
+configured depth model, builds the website and opens http://127.0.0.1:8000.
+The website and API are served by the same process and address: no manual
+frontend/backend connection is needed. `start_depthwizard.cmd` uses this launcher
+too. First-time setup requires Python 3.13, Node.js 22.12+ and internet access.
+Downloading a ZIP alone cannot start programs; extract it and run the launcher.
+Backend startup logs are in `.local-archive/launcher/`.
+
 Install Python **3.13** (including the Python launcher) and Node.js **22.12+**
 (including npm). Clone/download this repository and open a terminal in its root:
 
 ```powershell
-.\setup.cmd
-.\diagnose.cmd --model
-.\start_depthwizard.cmd
+.\START_HERE.cmd
 ```
 
 Do not transfer `.venv`, `node_modules`, model caches or runtime folders from
@@ -59,15 +66,14 @@ The simplest Windows start command is:
 ```
 
 This `.cmd` launcher works even when the machine's PowerShell execution policy
-blocks `.ps1` files. It opens separate backend and frontend terminals, waits
-until both HTTP services are genuinely ready, and then opens the site in the
-high-performance GPU browser. The service terminals stay open if startup fails
-so the underlying error remains visible.
+blocks `.ps1` files. It prepares dependencies and the model, builds React, starts
+one server for both the website and API, and opens the default browser after the
+server is ready. On failure the launcher stays open with guidance and saved logs.
 
 To run the services separately without changing the execution policy, use
 `.\start_backend.cmd`, `.\start_frontend.cmd`, and `.\open_gpu_viewer.cmd`.
 
-Open two PowerShell terminals at this repository root:
+For development only, open two PowerShell terminals at this repository root:
 
 ```powershell
 .\start_backend.ps1
