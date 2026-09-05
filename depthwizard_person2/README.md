@@ -11,10 +11,8 @@ must calibrate the output with SRTM and/or ground control points.
 ## Model and depth direction
 
 The default is the pretrained
-[`depth-anything/Depth-Anything-V2-Base-hf`](https://huggingface.co/depth-anything/Depth-Anything-V2-Base-hf)
-checkpoint by default. It preserves more structure while remaining practical on
-the project's 8 GB RTX GPU. Small and large variants are available, plus MiDaS
-DPT Hybrid as a fallback; choose Small for CPU-only demonstrations.
+`depth-anything/Depth-Anything-V2-Small-hf` checkpoint. Base and Large variants
+are optional, plus MiDaS DPT Hybrid. Small is the portable CPU starting point.
 
 These relative models produce an **inverse-depth/disparity-like** prediction:
 
@@ -29,7 +27,9 @@ The raw values have no physical unit. The program records this direction in
 
 ## Install
 
-Python 3.10 or newer is recommended.
+Python 3.13 is the tested project runtime. For the integrated website, use root
+`setup.cmd` so Persons 1–3 share the backend environment; do not create separate
+module environments. Run `diagnose.cmd --model` to test real inference directly.
 
 ```bash
 cd depthwizard_person2
@@ -42,6 +42,10 @@ pip install -r requirements.txt
 PyTorch uses CUDA automatically when a compatible NVIDIA setup is available;
 otherwise it runs on CPU. The first run downloads model weights from Hugging
 Face and later runs use the local cache.
+
+`DEPTH_DEVICE=cpu` forces CPU even if CUDA is detected; `auto` chooses available
+CUDA and `cuda` requires it. The integrated backend loads these settings from
+`depthwizard_person5/.env`. Restart the backend after editing that file.
 
 ## Run
 

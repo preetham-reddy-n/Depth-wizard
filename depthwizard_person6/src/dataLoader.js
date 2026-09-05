@@ -1,4 +1,4 @@
-function finite(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
+function finite(value, fallback) { if (value == null || value === '') return fallback; const n = Number(value); return Number.isFinite(n) ? n : fallback; }
 
 function horizontalSampleSpacing(metadata, pixelResolution) {
   const crs = String(metadata?.target?.crs || metadata?.crs || '');
@@ -54,11 +54,12 @@ export async function loadTerrainData({ heightmapUrl, textureUrl, metadataUrl, a
   try { raw = await heightResponse.json(); }
   catch { throw new Error('Height map is not valid JSON. The API must return heightmap.json, not a raw NPY/TIFF array.'); }
   let metadata = {};
-  if (metadataResponse?.ok) {
+  if (metadataResponse) {
+    if (!metadataResponse.ok) throw new Error(`Terrain metadata request failed (${metadataResponse.status}). Retry to load correct units and scale.`);
     try { metadata = await metadataResponse.json(); }
-    catch { /* Terrain remains usable when optional metadata is malformed. */ }
+    catch { throw new Error('Terrain metadata is not valid JSON. Cannot determine units and scale.'); }
   }
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) metadata = {};
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('Invalid terrain metadata: expected an object.');
   const width = Math.floor(finite(raw.width, 0));
   const height = Math.floor(finite(raw.height, 0));
   if (width < 2 || height < 2 || !Array.isArray(raw.heights) || raw.heights.length !== width * height) {
@@ -72,6 +73,7 @@ export async function loadTerrainData({ heightmapUrl, textureUrl, metadataUrl, a
   const validMask = Array.isArray(raw.valid) && raw.valid.length === values.length
     ? Uint8Array.from(raw.valid, (value, index) => Boolean(value) && Number.isFinite(values[index]))
     : Uint8Array.from(values, (value) => Number.isFinite(value));
+  for (let i = 0; i < values.length; i++) if (!validMask[i]) values[i] = NaN;
   fillMissing(values, width, height);
   const range = finiteRange(values);
   const min = finite(raw.elevation_min, range.min);
@@ -93,22 +95,27 @@ export async function loadTerrainData({ heightmapUrl, textureUrl, metadataUrl, a
   const [sourcePixelX, sourcePixelY] = horizontalSampleSpacing(metadata, [rawPixelX, rawPixelY]);
   metadata.pixelSizeX = Math.abs(finite(metadata.pixelSizeX, sourcePixelX * sampleScaleX)) || 1;
   metadata.pixelSizeY = Math.abs(finite(metadata.pixelSizeY, sourcePixelY * sampleScaleY)) || metadata.pixelSizeX;
-  return { width, height, heights: new Float32Array(values), validMask, min, max, units: raw.units || metadata.elevation_units || 'm', metadata, textureUrl: resolve(textureUrl, 'texture.png') };
+  return { width, height, heights: new Float32Array(values), validMask, min, max, units: metadata.is_absolute_elevation === true ? (metadata.elevation_units || 'metres') : 'relative', metadata, textureUrl: resolve(textureUrl, 'texture.png') };
 }
 
 // Deterministic nearest-neighbour spreading prevents nodata holes without inventing spikes.
 function fillMissing(values, width, height) {
-  let valid = values.reduce((n, v) => n + Number.isFinite(v), 0);
-  if (!valid) throw new Error('Height map contains no valid elevation samples.');
-  for (let pass = 0; pass < width + height && valid < values.length; pass++) {
-    const next = values.slice();
-    for (let i = 0; i < values.length; i++) if (!Number.isFinite(values[i])) {
-      const x = i % width, y = Math.floor(i / width), neighbours = [];
-      if (x) neighbours.push(values[i - 1]); if (x + 1 < width) neighbours.push(values[i + 1]);
-      if (y) neighbours.push(values[i - width]); if (y + 1 < height) neighbours.push(values[i + width]);
-      const good = neighbours.filter(Number.isFinite); if (good.length) { next[i] = good.reduce((a,b)=>a+b,0)/good.length; valid++; }
+  const queue = new Int32Array(values.length);
+  let head = 0, tail = 0;
+  for (let i = 0; i < values.length; i++) if (Number.isFinite(values[i])) queue[tail++] = i;
+  if (!tail) throw new Error('Height map contains no valid elevation samples.');
+  const visit = (index, source) => {
+    if (!Number.isFinite(values[index])) {
+      values[index] = values[source];
+      queue[tail++] = index;
     }
-    values.splice(0, values.length, ...next);
+  };
+  while (head < tail) {
+    const i = queue[head++], x = i % width;
+    if (x) visit(i - 1, i);
+    if (x + 1 < width) visit(i + 1, i);
+    if (i >= width) visit(i - width, i);
+    if (i + width < values.length) visit(i + width, i);
   }
 }
 
@@ -119,5 +126,5 @@ export function createProceduralTerrain(width = 160, height = 112) {
     const v=42*Math.exp(-(x*x+z*z)*.42)+18*Math.sin(x*2.1)*Math.cos(z*1.7)+32*Math.exp(-((x-1.2)**2+(z+.8)**2)*2);
     values[row*width+col]=v; min=Math.min(min,v); max=Math.max(max,v);
   }
-  return { width,height,heights:values,min,max,metadata:{pixelSizeX:1,pixelSizeY:1,name:'Procedural demo'},textureUrl:null };
+  return { width,height,heights:values,min,max,units:'relative',metadata:{pixelSizeX:1,pixelSizeY:1,name:'Procedural demo'},textureUrl:null };
 }

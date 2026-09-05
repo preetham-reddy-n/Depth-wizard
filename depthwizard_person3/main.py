@@ -176,6 +176,7 @@ def main() -> None:
         "elevation_units": "metres",
         "minimum_elevation": float(np.nanmin(final_dsm)),
         "maximum_elevation": float(np.nanmax(final_dsm)),
+        "mean_elevation": float(np.nanmean(final_dsm)),
         "inputs": {
             "geotiff": Path(args.geotiff).name,
             "relative_depth": Path(args.depth).name,

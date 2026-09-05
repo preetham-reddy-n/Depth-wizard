@@ -7,9 +7,8 @@ import sys
 from pathlib import Path
 
 from config import HIGH_PERCENTILE, LOW_PERCENTILE, PREVIEW_MAX_SIZE, validate_input_path
-from src.image_loader import load_image
+from src.pipeline import prepare_image
 from src.output import write_outputs
-from src.preprocessing import normalize_rgb
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -52,10 +51,8 @@ def main() -> int:
         validate_input_path(args.input)
         if args.max_model_size is not None and args.max_model_size < 256:
             raise ValueError("--max-model-size must be at least 256 pixels.")
-        loaded = load_image(args.input, max_model_size=args.max_model_size)
-        model_rgb = normalize_rgb(
-            loaded.original_rgb,
-            loaded.valid_mask,
+        loaded, model_rgb = prepare_image(
+            args.input, max_model_size=args.max_model_size,
             low_percentile=LOW_PERCENTILE,
             high_percentile=HIGH_PERCENTILE,
         )

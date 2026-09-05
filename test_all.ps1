@@ -20,7 +20,7 @@ foreach ($module in @("depthwizard_person1", "depthwizard_person2", "depthwizard
 Push-Location -LiteralPath (Join-Path $PSScriptRoot "depthwizard_person6")
 try {
     Write-Host "Testing 3D renderer"
-    & pnpm test
+    & node --test
     if ($LASTEXITCODE -ne 0) { throw "3D renderer tests failed with exit code $LASTEXITCODE." }
 }
 finally {
@@ -30,7 +30,7 @@ finally {
 Push-Location -LiteralPath (Join-Path $PSScriptRoot "depthwizard_person4")
 try {
     Write-Host "Building integrated frontend"
-    & pnpm build
+    & node node_modules/vite/bin/vite.js build
     if ($LASTEXITCODE -ne 0) { throw "Frontend build failed with exit code $LASTEXITCODE." }
 }
 finally {

@@ -1,0 +1,29 @@
+name: Project checks
+on: [push, pull_request]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      # Fast suites do not need torch or downloaded weights. Real inference is
+      # exercised locally with diagnose.cmd --model and smoke_real_pipeline.py.
+      - run: python -m pip install -r depthwizard_person1/requirements.txt -r depthwizard_person3/requirements.txt -r depthwizard_person5/requirements.txt pytest httpx
+      - name: Test modules in separate interpreters (each owns config/src)
+        run: |
+          for module in depthwizard_person1 depthwizard_person2 depthwizard_person3 depthwizard_person5; do
+            (cd "$module" && python -m pytest tests -q) || exit 1
+          done
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm --prefix depthwizard_person4 install
+      - run: npm --prefix depthwizard_person6 install
+      - run: npm --prefix depthwizard_person6 test
+      - run: npm --prefix depthwizard_person4 run build

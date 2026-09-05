@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env", override=False)
 PROJECT_DIR = BASE_DIR.parent
 
 RUNTIME_DIR = Path(os.getenv("RUNTIME_DIR", str(BASE_DIR / "runtime"))).resolve()
@@ -20,9 +22,9 @@ PERSON6_HEIGHTMAP_SCRIPT = Path(os.getenv("PERSON6_HEIGHTMAP_SCRIPT", str(PROJEC
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "500"))
 MOCK_PIPELINE = os.getenv("MOCK_PIPELINE", "false").strip().lower() in {"1", "true", "yes", "on"}
 PIPELINE_TIMEOUT_SECONDS = int(os.getenv("PIPELINE_TIMEOUT_SECONDS", "1800"))
-MODEL_MAX_SIZE = int(os.getenv("MODEL_MAX_SIZE", "3072"))
+MODEL_MAX_SIZE = int(os.getenv("MODEL_MAX_SIZE", "1024"))
 VIEWER_GRID_SIZE = int(os.getenv("VIEWER_GRID_SIZE", "512"))
-DEPTH_MODEL = os.getenv("DEPTH_MODEL", "depth_anything_v2_base").strip()
+DEPTH_MODEL = os.getenv("DEPTH_MODEL", "depth_anything_v2_small").strip()
 
 CORS_ORIGINS = [
     item.strip()

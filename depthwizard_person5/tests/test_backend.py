@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 import tempfile
 import unittest
@@ -117,6 +118,36 @@ class BackendTests(unittest.TestCase):
 
         _link_or_copy(second, destination)  # A new model replaces the stale output.
         self.assertEqual(destination.read_bytes(), b"second-model")
+
+    def test_unknown_depth_failure_points_to_diagnostic(self):
+        from pipeline_runner import _failure_message
+        message = _failure_message('Person 2 depth estimation', 'unclassified failure', 1)
+        self.assertIn('diagnose.cmd --model', message)
+
+    def test_calibration_failure_preserves_relative_results_and_merged_metadata(self):
+        import pipeline_runner as runner
+        from file_manager import create_job, read_status
+
+        job_id, root = create_job()
+        runner._write_mock_npy(root / "person2" / "relative_depth.npy")
+        runner._write_mock_heightmap(root / "person2" / "heightmap.json")
+        (root / "person2" / "depth_metadata.json").write_text('{"min_depth": -2, "max_depth": 12, "mean_depth": 4}')
+        (root / "person1" / "metadata.json").write_text('{"is_georeferenced": false, "width": 100, "height": 50}')
+        with patch.object(runner.config, "MOCK_PIPELINE", False), \
+             patch.object(runner, "run_person1"), patch.object(runner, "run_person2"):
+            runner.run_pipeline(root / "input" / "scene.png", root, job_id, srtm_path=root / "missing.tif")
+        self.assertEqual(read_status(root)["status"], "completed")
+        metadata = json.loads((root / "results" / "metadata.json").read_text())
+        self.assertFalse(metadata["is_absolute_elevation"])
+        self.assertEqual(metadata["elevation_units"], "relative")
+        self.assertEqual(metadata["width"], 100)
+        self.assertEqual(metadata["minimum_elevation"], -2)
+        self.assertEqual(metadata["maximum_elevation"], 12)
+        self.assertEqual(metadata["mean_elevation"], 4)
+        self.assertIn("calibration failed", metadata["warning"])
+        result = self.client.get(f"/api/results/{job_id}").json()
+        self.assertTrue(result["dsm_download_url"].endswith("fused_dsm.npy"))
+        self.assertEqual(self.client.get(result["metadata_url"]).json(), metadata)
 
     def test_absolute_calibration_rejects_untrusted_georeferencing(self):
         from pipeline_runner import PipelineStageError, run_person3

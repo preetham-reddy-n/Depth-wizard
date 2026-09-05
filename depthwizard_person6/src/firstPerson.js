@@ -37,6 +37,8 @@ export function createFirstPersonControls(camera, canvas, {
   let enabled = true;
   let yaw = camera.rotation.y;
   let pitch = camera.rotation.x;
+  let dragging = false;
+  let lastPointerX = 0, lastPointerY = 0;
 
   canvas.tabIndex = 0;
   canvas.setAttribute('aria-label', 'Interactive first-person terrain. Click to look. W S move, A D strafe, Q or Space rises, E or Shift descends, and Escape releases the mouse.');
@@ -54,6 +56,7 @@ export function createFirstPersonControls(camera, canvas, {
 
   function keyDown(event) {
     if (!enabled || isTypingTarget(event.target)) return;
+    if (document.activeElement !== canvas && document.pointerLockElement !== canvas) return;
     const action = actionForKey(event);
     if (!action) return;
     keys.add(action);
@@ -66,9 +69,13 @@ export function createFirstPersonControls(camera, canvas, {
   }
 
   function pointerMove(event) {
-    if (!enabled || document.pointerLockElement !== canvas) return;
-    yaw -= event.movementX * 0.002 * currentMouseSensitivity;
-    pitch -= event.movementY * 0.002 * currentMouseSensitivity;
+    const locked = document.pointerLockElement === canvas;
+    if (!enabled || (!locked && !dragging)) return;
+    const dx = locked ? event.movementX : event.clientX - lastPointerX;
+    const dy = locked ? event.movementY : event.clientY - lastPointerY;
+    lastPointerX = event.clientX; lastPointerY = event.clientY;
+    yaw -= dx * 0.002 * currentMouseSensitivity;
+    pitch -= dy * 0.002 * currentMouseSensitivity;
     pitch = THREE.MathUtils.clamp(pitch, -Math.PI * 0.47, Math.PI * 0.47);
     camera.rotation.set(pitch, yaw, 0, 'YXZ');
     onActivity();
@@ -90,13 +97,25 @@ export function createFirstPersonControls(camera, canvas, {
     onActivity();
   }
 
-  function clearKeys() { keys.clear(); }
+  function startDrag(event) {
+    if (!enabled || event.button !== 0) return;
+    canvas.focus({ preventScroll: true });
+    dragging = true;
+    lastPointerX = event.clientX; lastPointerY = event.clientY;
+  }
+  function endDrag() { dragging = false; }
+  function clearKeys() { keys.clear(); endDrag(); }
+  function lockChanged() { if (document.pointerLockElement !== canvas) clearKeys(); }
 
   window.addEventListener('keydown', keyDown);
   window.addEventListener('keyup', keyUp);
   window.addEventListener('blur', clearKeys);
+  canvas.addEventListener('blur', clearKeys);
+  document.addEventListener('pointerlockchange', lockChanged);
   document.addEventListener('mousemove', pointerMove);
   canvas.addEventListener('click', activate);
+  canvas.addEventListener('mousedown', startDrag);
+  window.addEventListener('mouseup', endDrag);
 
   function syncRotation() {
     const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -110,7 +129,7 @@ export function createFirstPersonControls(camera, canvas, {
     set enabled(value) {
       enabled = Boolean(value);
       if (!enabled) {
-        keys.clear();
+        clearKeys();
         if (document.pointerLockElement === canvas) {
           try { document.exitPointerLock?.(); } catch { /* The document may be detaching. */ }
         }
@@ -160,8 +179,12 @@ export function createFirstPersonControls(camera, canvas, {
       window.removeEventListener('keydown', keyDown);
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('blur', clearKeys);
+      canvas.removeEventListener('blur', clearKeys);
+      document.removeEventListener('pointerlockchange', lockChanged);
       document.removeEventListener('mousemove', pointerMove);
       canvas.removeEventListener('click', activate);
+      canvas.removeEventListener('mousedown', startDrag);
+      window.removeEventListener('mouseup', endDrag);
       if (document.pointerLockElement === canvas) {
         try { document.exitPointerLock?.(); } catch { /* The document may be detaching. */ }
       }

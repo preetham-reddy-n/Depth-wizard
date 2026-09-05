@@ -12,6 +12,7 @@ export default function AnalyzePage() {
   const navigate = useNavigate()
   const timerRef = useRef(null)
   const pollFailuresRef = useRef(0)
+  const requestGeneration = useRef(0)
   const [file, setFile] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
   const [validationError, setValidationError] = useState('')
@@ -20,7 +21,8 @@ export default function AnalyzePage() {
   const [processing, setProcessing] = useState(null)
   const [error, setError] = useState('')
 
-  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); clearTimeout(timerRef.current) }, [previewUrl])
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
+  useEffect(() => () => { requestGeneration.current += 1; clearTimeout(timerRef.current) }, [])
 
   function chooseFile(next) {
     setValidationError('')
@@ -33,27 +35,31 @@ export default function AnalyzePage() {
   }
 
   function reset() {
+    requestGeneration.current += 1
     clearTimeout(timerRef.current)
     setProcessing(null)
     setError('')
   }
 
-  async function poll(jobId) {
+  async function poll(jobId, generation) {
+    if (generation !== requestGeneration.current) return
     try {
       const state = await getJobStatus(jobId)
+      if (generation !== requestGeneration.current) return
       pollFailuresRef.current = 0
       setProcessing(state)
-      if (state.status === 'completed') return navigate(`/results/${jobId}`, { state: { originalPreview: previewUrl } })
+      if (state.status === 'completed') return navigate(`/results/${jobId}`)
       if (state.status === 'failed') {
         setError(state.message || 'The processing pipeline failed.')
         setProcessing(null)
         return undefined
       }
-      timerRef.current = setTimeout(() => poll(jobId), POLL_INTERVAL_MS)
+      timerRef.current = setTimeout(() => poll(jobId, generation), POLL_INTERVAL_MS)
     } catch (caught) {
+      if (generation !== requestGeneration.current) return
       if (pollFailuresRef.current < 3) {
         pollFailuresRef.current += 1
-        timerRef.current = setTimeout(() => poll(jobId), POLL_INTERVAL_MS * pollFailuresRef.current)
+        timerRef.current = setTimeout(() => poll(jobId, generation), POLL_INTERVAL_MS * pollFailuresRef.current)
         return
       }
       setError(readableError(caught))
@@ -72,13 +78,16 @@ export default function AnalyzePage() {
     setValidationError('')
     pollFailuresRef.current = 0
     setProcessing({ status: 'uploaded' })
+    const generation = ++requestGeneration.current
     try {
       const response = await createJob(file, advanced)
+      if (generation !== requestGeneration.current) return
       if (!response.job_id) throw new Error('The backend response did not include a job ID.')
-      if (response.status === 'completed') return navigate(`/results/${response.job_id}`, { state: { initialResults: response, originalPreview: previewUrl } })
+      if (response.status === 'completed') return navigate(`/results/${response.job_id}`, { state: { initialResults: response } })
       setProcessing(response)
-      return poll(response.job_id)
+      return poll(response.job_id, generation)
     } catch (caught) {
+      if (generation !== requestGeneration.current) return
       setError(readableError(caught))
       setProcessing(null)
     }

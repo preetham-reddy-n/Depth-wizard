@@ -9,4 +9,19 @@
 *.log
 .geo_deps/
 .pnpm-store/
+.local-archive/
+**/.env
+**/.env.*
+!**/.env.example
+**/*.local
+**/.DS_Store
+**/Thumbs.db
+**/person1_output/
+**/person2_output/
+**/person3_output/
+**/*.pt
+**/*.pth
+**/*.safetensors
+**/.cache/
+docs/_tmp*/
 

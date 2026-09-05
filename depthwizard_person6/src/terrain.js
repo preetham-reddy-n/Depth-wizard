@@ -22,7 +22,8 @@ export async function createTerrain(data, { verticalExaggeration=1, maxGridSize=
   const sampled = resampleGrid(data, maxGridSize);
   const {width,height,heights,min,max} = sampled;
   const validMask=sampled.validMask||new Uint8Array(width*height).fill(1);
-  const px = Number(data.metadata.pixelSizeX)||1, py = Number(data.metadata.pixelSizeY)||px;
+  const px = (Number(data.metadata.pixelSizeX)||1)*(data.width-1)/(width-1);
+  const py = (Number(data.metadata.pixelSizeY)||Number(data.metadata.pixelSizeX)||1)*(data.height-1)/(height-1);
   const worldWidth=(width-1)*px, worldDepth=(height-1)*py;
   const worldSpan=Math.max(worldWidth,worldDepth,1);
   const relativeUnits=String(data.units||'').toLowerCase().startsWith('relative');
@@ -113,6 +114,7 @@ export function setVerticalExaggeration(mesh, factor) {
   if(original) for(let i=0;i<p.count;i++) p.setY(i,original[i]*mesh.userData.elevationScale*factor);
   else { const ratio=factor/mesh.userData.verticalExaggeration; for(let i=0;i<p.count;i++) p.setY(i,p.getY(i)*ratio); }
   mesh.userData.verticalExaggeration=factor; p.needsUpdate=true; mesh.geometry.computeVertexNormals();
+  mesh.geometry.computeBoundingBox(); mesh.geometry.computeBoundingSphere();
 }
 
 export function setTerrainMode(mesh, mode) {

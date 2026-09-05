@@ -1,0 +1,6 @@
+# ML versions observed working together on Python 3.13 in this project.
+# CPU/CUDA wheel selection is separate; do not copy another laptop's .venv.
+torch==2.14.0
+torchvision==0.29.0
+transformers==5.16.1
+safetensors==0.8.0

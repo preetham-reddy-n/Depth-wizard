@@ -2,9 +2,53 @@
 
 This was the project selected for the September 2026 Hackathon.
 
+## First run on another Windows laptop
+
+Install Python **3.13** (including the Python launcher) and Node.js **22.12+**
+(including npm). Clone/download this repository and open a terminal in its root:
+
+```powershell
+.\setup.cmd
+.\diagnose.cmd --model
+.\start_depthwizard.cmd
+```
+
+Do not transfer `.venv`, `node_modules`, model caches or runtime folders from
+another computer. Setup creates that computer's dependencies and copies the
+example configuration only if no `.env` exists. The tested ML version pair is
+recorded in `constraints-tested.txt`. GPU acceleration is optional.
+
+New installations use the Small depth model with a 1024-pixel processing limit.
+The backend `.env.example` selects CPU for a reliable starting point. The first
+model check needs internet access to download weights from Hugging Face; later
+runs reuse the local cache. CPU inference can take minutes.
+
+If the website says **Person 2 / depth estimation failed**, run
+`.\diagnose.cmd --model` and inspect `.local-archive/diagnostics/person2-check.log`.
+That distinguishes broken imports, a download failure, an invalid model setting,
+and a device/inference error. The last error lines are needed to diagnose a
+specific laptop; a stage label alone does not identify the cause.
+
+For an existing installation, set these in `depthwizard_person5/.env` and restart
+the backend before trying again:
+
+```dotenv
+DEPTH_DEVICE=cpu
+DEPTH_MODEL=depth_anything_v2_small
+MODEL_MAX_SIZE=1024
+```
+
+On a compatible NVIDIA setup, opt into `DEPTH_DEVICE=auto`,
+`DEPTH_MODEL=depth_anything_v2_base` and `MODEL_MAX_SIZE=3072`. The optional
+`enable_cuda.ps1` helper targets this project's specific CUDA 13 wheel pair;
+it is not required and is not a universal driver installer.
+
 DepthWizard converts a PNG, JPEG, or GeoTIFF into relative or calibrated elevation and displays it as interactive 3D terrain.
 
-Large imagery is decoded to a bounded 3072-pixel working grid and processed as overlapping model tiles. This avoids the old failure mode where a 16k aerial scene was reduced to one 518-pixel model pass and then falsely enlarged. Edge-connected black film/scanner borders are masked out of both inference statistics and 3D mesh geometry.
+Large imagery is decoded to a bounded working grid (1024 pixels by default;
+3072 for the optional GPU profile) and larger grids use overlapping model tiles.
+Edge-connected black film/scanner borders are masked out of inference statistics
+and 3D mesh geometry.
 
 ## Run
 
@@ -48,14 +92,20 @@ Brave/Chrome session with Chromium's `--force_high_performance_gpu` preference.
 The lower-right badge must say NVIDIA/RTX; if it says `INTEGRATED GPU · Intel`,
 that browser process is still not using the discrete renderer.
 
-The integrated flow is Person 4 (React) → Person 5 (FastAPI) → Persons 1–3 (image/depth/elevation pipeline) → Person 6 (Three.js viewer). The browser always receives a bounded `heightmap.json`; full-resolution NPY/GeoTIFF products remain downloadable.
+The integrated flow is Person 4 (React) → Person 5 (FastAPI) → Persons 1–3 (image/depth/elevation pipeline) → Person 6 (Three.js viewer). The browser receives a bounded `heightmap.json`; NPY/GeoTIFF products retain the processing-grid resolution, which can be smaller than the original input. The original uploaded raster is retained unchanged. Increasing `MODEL_MAX_SIZE` increases processing resolution and memory use; upsampling does not recover missing detail.
 
-Rendering uses the bounded 3072-pixel RGB texture, a 512-sample anti-aliased
+Rendering uses the bounded processing-grid RGB texture, a 512-sample
 terrain grid, GPU anisotropic texture filtering, soft self-shadowing, robust
 relative-height clipping, and display-only surface smoothing. Numerical point
 readings remain sampled from the unmodified elevation/depth field.
 
 The 3D viewer opens in an orbiting Overview. Aim the centre reticle at the surface to read its elevation/relative height, slope, source row/column, calibration source, and map coordinate when a valid transform exists. Select Fly for keyboard navigation: `W`/`S` move along the camera heading, `A`/`D` strafe, `Q` or `Space` rises, and `E` or `Shift` descends. The toolbar includes movement-speed, mouse-look, and vertical-relief controls. PNG/JPEG and uncalibrated inputs are labelled `rel`; only a successfully calibrated GeoTIFF reports metres.
+
+In Fly mode, click the canvas for pointer-lock mouse look and press Escape to
+release it. If the browser blocks pointer lock, hold the left mouse button and
+drag to look. Movement keys apply only while the canvas is focused. Overview
+controls stop updating during Fly mode. Relief changes affect geometry only;
+point elevations and downloaded arrays remain unchanged.
 
 A `.tif` extension does not guarantee trustworthy georeferencing. DepthWizard validates the declared CRS against the raster's transformed centre and treats inconsistent metadata as non-georeferenced, with a visible warning. A generic monocular model estimates visual relative structure; it does not semantically guarantee that every road is ground or distinguish building height from canopy height. Operational DSM accuracy requires a remote-sensing height model and independent LiDAR/DEM/GCP validation.
 
@@ -76,3 +126,73 @@ Example GCP files are in `depthwizard_person3/examples`. Without one of these re
 ```
 
 This runs all four Python suites, the 3D data/geometry tests, and the production frontend build.
+
+## Install from a clean terminal
+
+Prerequisites: Python 3.13 (tested) and Node.js 22.12+. From the repository root:
+
+```powershell
+py -3.13 -m venv depthwizard_person5/.venv
+.\depthwizard_person5\.venv\Scripts\python.exe -m pip install -c constraints-tested.txt -r depthwizard_person5/requirements.txt -r depthwizard_person5/requirements-pipeline.txt pytest httpx
+npm --prefix depthwizard_person4 install
+npm --prefix depthwizard_person6 install
+```
+
+Start each service in a separate terminal at the repository root:
+
+```powershell
+.\depthwizard_person5\.venv\Scripts\python.exe -m uvicorn main:app --app-dir depthwizard_person5 --host 127.0.0.1 --port 8000
+```
+
+```powershell
+npm --prefix depthwizard_person4 run dev
+```
+
+The first inference downloads the configured pretrained model unless cached. CPU is supported but slower. Frontend configuration lives in `depthwizard_person4/.env.local`: set `VITE_API_BASE_URL` to the backend origin and leave `VITE_USE_MOCK_API=false`. Backend settings are environment variables: `CORS_ORIGINS` (comma-separated allowed frontend origins), `RUNTIME_DIR`, `DEPTH_MODEL`, `MODEL_MAX_SIZE`, `VIEWER_GRID_SIZE`, `PERSON3_SRTM`, and `PERSON3_GCPS`. Defaults use project-relative storage and local development origins.
+
+## Module and API handoffs
+
+- Person 1: `depthwizard_person1/src/pipeline.py` prepares RGB, masks and metadata. Its reusable `prepare_image` interface adapts Kakshi's `pipeline.py` idea without duplicating loaders or stretching images to a square.
+- Person 2: `depthwizard_person2/main.py` performs pretrained monocular inference and exports relative depth.
+- Person 3: `depthwizard_person3/main.py` aligns uploaded/local reference rasters, fits depth to SRTM/GCP elevations and exports an estimated DSM. Calibration failures preserve relative results with a visible warning; failed partial absolute outputs are excluded from downloads.
+- Person 4: `depthwizard_person4` contains React upload, stage progress and results pages.
+- Person 5: `depthwizard_person5` stores each upload under `runtime/jobs/<job_id>/input`, invokes the module CLIs with the same Python interpreter, and serves results.
+- Person 6: `depthwizard_person6` converts numeric height fields to a bounded viewer grid and renders RGB-textured terrain. Geometry filling does not change the validity mask or scientific output.
+
+`POST /api/process` accepts multipart `image`, optional `srtm` and `gcp`, and returns a queued job ID. Poll `GET /api/status/{job_id}` until completed or failed, then fetch `GET /api/results/{job_id}`. Result URLs under `/api/files/{job_id}/{filename}` provide previews, arrays, heightmap and merged metadata. Browser progress is stage-based; legacy numeric progress fields are not timing estimates. Missing model weights or inference failures are errors; only optional calibration has a relative fallback.
+
+## Real-model verification
+
+```powershell
+.\depthwizard_person5\.venv\Scripts\python.exe depthwizard_person3/examples/create_synthetic_demo.py
+.\depthwizard_person5\.venv\Scripts\python.exe depthwizard_person5/tests/smoke_real_pipeline.py
+```
+
+This explicitly runs real inference through the API for PNG, JPEG, and GeoTIFF with SRTM/GCP references. It keeps artifacts in `depthwizard_person5/runtime_verification`, uses a 512-pixel processing limit, and is separate from fast unit tests. The synthetic calibration fixture tests integration, not real-world accuracy.
+
+See `docs/integration-report.md` for the inspected Kakshi features, changed files, verification evidence and remaining limitations.
+
+The latest follow-up is `docs/integration-followup-2026-09-06.md`. It records
+current tests and browser verification separately from the earlier integration
+report. Kakshi's original source folder was not available in this follow-up;
+the existing attributed adapter is preserved without claiming new source review.
+
+## GitHub and source sharing
+
+The repository includes source, small synthetic fixtures, tests, lockfiles,
+example configuration and the final team guide. Generated document-build
+intermediates were moved to `.local-archive/depthwizard-guide-build` locally.
+Local environments, secrets/config overrides, models, logs and processed uploads
+are ignored. GitHub Actions runs fast module tests and the frontend build; it
+does not download or run the neural model.
+
+Create a clean source ZIP from current files (including uncommitted changes):
+
+```powershell
+.\depthwizard_person5\.venv\Scripts\python.exe scripts/prepare_release.py
+```
+
+The ZIP is `.local-archive/release/DepthWizard-source.zip`. Unzip before running
+setup. It contains no copied Python environment, model weights or user uploads.
+Review `git status` before committing; no GitHub repository is created or pushed
+by these scripts.

@@ -36,7 +36,7 @@ function mapCoordinate(metadata, column, row) {
 }
 
 function setHelp(help,mode) {
-  if(mode==='walk') help.innerHTML='<b>FREE FLIGHT</b><span>W/S forward · A/D strafe · Q/Space up · E/Shift down · mouse look</span>';
+  if(mode==='walk') help.innerHTML='<b>FREE FLIGHT</b><span>Click for mouse look · Esc releases · drag if unavailable · W/S forward · A/D strafe · Space/Q up · Shift/E down</span>';
   else if(mode==='fly') help.innerHTML='<b>AUTO FLY</b><span>Pause or switch to Overview / Walk at any time</span>';
   else help.innerHTML='<b>OVERVIEW</b><span>Drag to orbit · right-drag to pan · wheel to zoom</span>';
 }
@@ -174,7 +174,7 @@ export async function createTerrainViewer({container,heightmapUrl,textureUrl,met
     const render=()=>{
       animationId=requestAnimationFrame(render);
       const dt=Math.min(clock.getDelta(),.05);
-      fly.update(dt);firstPerson.update(dt);orbit.update();
+      fly.update(dt);firstPerson.update(dt);if(orbit.enabled)orbit.update();
 
       raycaster.setFromCamera(centerOfView,camera);
       const hit=raycaster.intersectObject(terrain.mesh,false)[0];

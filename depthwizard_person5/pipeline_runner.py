@@ -81,6 +81,10 @@ def _failure_message(label: str, stderr: str, return_code: int) -> str:
             return f"{label} failed: {detail[6:].strip()}"
     if return_code in {-9, -1073740791}:
         return f"{label} was stopped, usually because the image exhausted available memory."
+    if "depth estimation" in label.lower():
+        return (f"{label} failed (exit code {return_code}). Run diagnose.cmd --model "
+                "from the project folder to check dependencies, model download and device setup. "
+                "Share the final error lines from .local-archive/diagnostics/person2-check.log.")
     return f"{label} failed (exit code {return_code}). Check this job's private status.json for details."
 
 
@@ -154,14 +158,15 @@ def run_person2(person1_dir: Path, output_dir: Path) -> None:
 
 
 def run_person3(input_path: Path, person1_dir: Path, person2_dir: Path, output_dir: Path,
-                srtm_path: Path | None = None, gcp_path: Path | None = None) -> None:
+                srtm_path: Path | None = None, gcp_path: Path | None = None,
+                fallback_reason: str | None = None) -> None:
     # Absolute calibration is optional at the website boundary. When no SRTM or
     # GCPs are configured, expose Person 2's aligned relative surface to the 3D
     # viewer instead of invoking Person 3, whose CLI correctly requires an
     # absolute-height reference.
     srtm_value = str(srtm_path) if srtm_path else config.PERSON3_SRTM
     gcp_value = str(gcp_path) if gcp_path else config.PERSON3_GCPS
-    if not srtm_value and not gcp_value:
+    if fallback_reason or (not srtm_value and not gcp_value):
         depth = person2_dir / config.PERSON2_DEPTH_FILENAME
         preview = person2_dir / "relative_depth_preview.png"
         if not depth.is_file():
@@ -174,6 +179,7 @@ def run_person3(input_path: Path, person1_dir: Path, person2_dir: Path, output_d
             shutil.copy2(preview, output_dir / "dsm_preview.png")
         source_metadata = _read_json_object(person1_dir / "metadata.json")
         heightmap_metadata = _read_json_object(heightmap)
+        depth_metadata = _read_json_object(person2_dir / "depth_metadata.json")
         pixel_size_x = source_metadata.get("pixel_size_x")
         pixel_size_y = source_metadata.get("pixel_size_y")
         report = {
@@ -181,9 +187,10 @@ def run_person3(input_path: Path, person1_dir: Path, person2_dir: Path, output_d
             "calibration_source": "Absolute elevation unavailable",
             "elevation_units": "relative",
             "is_absolute_elevation": False,
-            "minimum_elevation": heightmap_metadata.get("elevation_min"),
-            "maximum_elevation": heightmap_metadata.get("elevation_max"),
-            "warning": "No SRTM or GCP calibration source was configured.",
+            "minimum_elevation": depth_metadata.get("min_depth", heightmap_metadata.get("elevation_min")),
+            "maximum_elevation": depth_metadata.get("max_depth", heightmap_metadata.get("elevation_max")),
+            "mean_elevation": depth_metadata.get("mean_depth"),
+            "warning": fallback_reason or "No SRTM or GCP calibration source was configured.",
             "target": {
                 "crs": source_metadata.get("crs"),
                 "width": source_metadata.get("width"),
@@ -337,8 +344,6 @@ def run_pipeline(input_path: Path, job_dir: Path, job_id: str,
             _run_mock(input_path, job_dir)
         else:
             required_scripts = [config.PERSON1_SCRIPT, config.PERSON2_SCRIPT]
-            if srtm_path or gcp_path or config.PERSON3_SRTM or config.PERSON3_GCPS:
-                required_scripts.append(config.PERSON3_SCRIPT)
             missing = [str(path) for path in required_scripts if not path.is_file()]
             if missing:
                 raise PipelineStageError("configuration", "Pipeline script not found: " + ", ".join(missing))
@@ -347,7 +352,27 @@ def run_pipeline(input_path: Path, job_dir: Path, job_id: str,
             update_status(job_dir, status="depth_estimation", progress=45)
             run_person2(job_dir / "person1", job_dir / "person2")
             update_status(job_dir, status="calibration", progress=75)
-            run_person3(input_path, job_dir / "person1", job_dir / "person2", job_dir / "person3", srtm_path, gcp_path)
+            try:
+                run_person3(input_path, job_dir / "person1", job_dir / "person2", job_dir / "person3", srtm_path, gcp_path)
+            except PipelineStageError as exc:
+                if exc.stage != "person3":
+                    raise
+                logger.warning("Calibration unavailable: %s; stderr=%s", exc.message, exc.stderr)
+                # Partial absolute products must never be served as relative results.
+                partial = job_dir / "person3" / "failed_calibration"
+                partial.mkdir(exist_ok=True)
+                for artifact in (job_dir / "person3").iterdir():
+                    if artifact.is_file():
+                        artifact.replace(partial / artifact.name)
+                run_person3(input_path, job_dir / "person1", job_dir / "person2", job_dir / "person3",
+                            fallback_reason="Absolute calibration failed or was unavailable. Relative elevation is shown; check the backend log for details.")
+        update_status(job_dir, status="terrain_generation", progress=None)
+        metadata = {}
+        for folder, filename in (("person1", "metadata.json"), ("person2", "depth_metadata.json"),
+                                 ("person3", "calibration_report.json"), ("person3", "metadata.json")):
+            metadata.update(_read_json_object(job_dir / folder / filename))
+        (job_dir / "results" / "metadata.json").write_text(
+            json.dumps(metadata, indent=2), encoding="utf-8")
         update_status(job_dir, status="completed", progress=100)
         logger.info("[DepthWizard] Job %s completed successfully", job_id)
     except PipelineStageError as exc:
@@ -357,5 +382,6 @@ def run_pipeline(input_path: Path, job_dir: Path, job_id: str,
         raise
     except Exception as exc:
         logger.exception("[DepthWizard] Unexpected pipeline error")
-        update_status(job_dir, status="failed", progress=0, stage="backend", message=str(exc))
+        update_status(job_dir, status="failed", progress=0, stage="backend",
+                      message="Unexpected backend processing failure. Check the backend log.", stderr=str(exc))
         raise PipelineStageError("backend", "Unexpected backend processing failure.", stderr=str(exc)) from exc

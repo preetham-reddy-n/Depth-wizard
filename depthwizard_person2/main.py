@@ -1,6 +1,7 @@
 """Command-line entry point for DepthWizard Person 2."""
 
 import argparse
+import traceback
 import sys
 from pathlib import Path
 
@@ -99,7 +100,10 @@ def main() -> int:
     try:
         run(parse_args())
         return 0
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+    except Exception as exc:
+        # The backend retains this traceback privately while extracting the
+        # final Error line as the short browser message.
+        traceback.print_exc(file=sys.stderr)
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
